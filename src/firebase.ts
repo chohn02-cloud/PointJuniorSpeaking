@@ -38,12 +38,30 @@ interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  let errString = "";
+  try {
+    if (error instanceof Error) {
+      errString = error.message;
+    } else {
+      errString = String(error);
+    }
+  } catch (e) {
+    errString = "Unknown error (non-serializable)";
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errString,
     authInfo: {},
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+
+  try {
+    const serialized = JSON.stringify(errInfo);
+    console.error('Firestore Error: ', serialized);
+    throw new Error(serialized);
+  } catch (e) {
+    console.error('Firestore Error (circular fallback): ', errString);
+    throw new Error(errString);
+  }
 }

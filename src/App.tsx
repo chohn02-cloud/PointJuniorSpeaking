@@ -105,6 +105,8 @@ export default function App() {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement>(new Audio());
   const recordingTimerRef = useRef<any>(null);
+  const sttTimeoutRef = useRef<any>(null);
+  const isSttTimedOutRef = useRef<boolean>(false);
 
   // ── 1. Init: Browser & Storage check ──
   useEffect(() => {
@@ -119,7 +121,7 @@ export default function App() {
       try {
         setDoneUnits(JSON.parse(savedDone));
       } catch (e) {
-        console.error(e);
+        console.error(e instanceof Error ? e.message : String(e));
       }
     }
 
@@ -212,7 +214,7 @@ export default function App() {
           return;
         }
       } catch (e) {
-        console.error(e);
+        console.error(e instanceof Error ? e.message : String(e));
       }
     }
 
@@ -295,6 +297,10 @@ export default function App() {
   };
 
   const stopSttIfNeeded = () => {
+    if (sttTimeoutRef.current) {
+      clearTimeout(sttTimeoutRef.current);
+      sttTimeoutRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
@@ -391,6 +397,7 @@ export default function App() {
     }
 
     stopSttIfNeeded();
+    isSttTimedOutRef.current = false;
 
     const recognizer = new SpeechRecognition();
     recognizer.lang = "en-US";
@@ -406,13 +413,41 @@ export default function App() {
       det: ""
     });
 
+    const clearSTTTimeout = () => {
+      if (sttTimeoutRef.current) {
+        clearTimeout(sttTimeoutRef.current);
+        sttTimeoutRef.current = null;
+      }
+    };
+
+    // 6초 타임아웃 감지기 설치 (안드로이드 불통 및 Stuck 현상 하드웨어 조치)
+    sttTimeoutRef.current = setTimeout(() => {
+      isSttTimedOutRef.current = true;
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {}
+      }
+      setIsListeningStt(false);
+      setFeedback({
+        status: "ng",
+        emoji: "😅",
+        msg: "음성 인식 시간이 초과되었습니다.",
+        det: "주변을 조용히 하거나 마이크를 다시 누른 뒤 차근차근 큰 목소리로 말해주세요 🎤"
+      });
+    }, 6000);
+
     recognizer.onresult = (e: any) => {
+      if (isSttTimedOutRef.current) return;
+      clearSTTTimeout();
       const spoken = e.results[0][0].transcript.trim();
       setIsListeningStt(false);
       evaluatePronunciation(spoken);
     };
 
     recognizer.onerror = (e: any) => {
+      if (isSttTimedOutRef.current) return;
+      clearSTTTimeout();
       setIsListeningStt(false);
       setFeedback({
         status: "ng",
@@ -423,13 +458,22 @@ export default function App() {
     };
 
     recognizer.onend = () => {
+      if (isSttTimedOutRef.current) return;
+      clearSTTTimeout();
       setIsListeningStt(false);
     };
 
     try {
       recognizer.start();
     } catch (err) {
+      clearSTTTimeout();
       setIsListeningStt(false);
+      setFeedback({
+        status: "ng",
+        emoji: "😅",
+        msg: "마이크를 시작할 수 없습니다.",
+        det: "마이크 사용 제한을 해제하거나 다른 브라우저(크롬 등)로 접속해 보세요 🎤"
+      });
     }
   };
 
@@ -645,7 +689,7 @@ export default function App() {
       try {
         await uploadRecordingToFirebase(recordingBlob);
       } catch (err) {
-        console.error("Audio Upload Failure:", err);
+        console.error("Audio Upload Failure:", err instanceof Error ? err.message : String(err));
       }
     }
 
@@ -653,7 +697,7 @@ export default function App() {
     try {
       await saveSttHistoryToFirebase();
     } catch (err) {
-      console.error("History Upload Failure:", err);
+      console.error("History Upload Failure:", err instanceof Error ? err.message : String(err));
     }
 
     // 전송 완료 후 상태 갱신
@@ -749,7 +793,7 @@ export default function App() {
               submittedAt: serverTimestamp()
             });
           } catch (e) {
-            console.error("DB Metadata insert error:", e);
+            console.error("DB Metadata insert error:", e instanceof Error ? e.message : String(e));
           }
           setUploadProgress(null);
           resolve();
@@ -1275,8 +1319,7 @@ export default function App() {
                     {/* 정교하게 리디자인된 마이크 녹음기 래퍼 */}
                     <div className="flex flex-col items-center justify-center py-2">
                       <motion.button
-                        onClick={startSTT}
-                        disabled={isListeningStt}
+                        onClick={isListeningStt ? stopSttIfNeeded : startSTT}
                         className={`w-20 h-20 rounded-full flex items-center justify-center text-white cursor-pointer shadow-lg outline-hidden ${
                           isListeningStt
                             ? "bg-brand-blue animate-mic-active"

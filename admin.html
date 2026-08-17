@@ -5,7 +5,67 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="theme-color" content="#4D96FF" />
   <title>Point Junior Speaking - 선생님 대시보드 👩‍🏫</title>
+
+  <script>
+    // Safeguard to prevent "Converting circular structure to JSON" errors when serializing logs
+    (function() {
+      function safeSanitize(obj) {
+        if (!obj) return obj;
+        if (obj instanceof Error || (typeof obj === 'object' && (obj.message !== undefined || obj.stack !== undefined))) {
+          return obj.stack || `${obj.name || 'Error'}: ${obj.message}`;
+        }
+        if (typeof obj === 'function') {
+          return `[Function: ${obj.name || 'anonymous'}]`;
+        }
+        if (typeof window !== 'undefined' && (obj === window || obj === document)) {
+          return '[Browser Host Object]';
+        }
+        if (typeof HTMLElement !== 'undefined' && (obj instanceof HTMLElement || obj.nodeType !== undefined)) {
+          return `[HTMLElement: ${obj.tagName || 'Element'}]`;
+        }
+        if (typeof Event !== 'undefined' && (obj instanceof Event || (obj.type !== undefined && obj.target !== undefined))) {
+          return `[Event: ${obj.type}]`;
+        }
+        try {
+          const cache = new WeakSet();
+          const str = JSON.stringify(obj, (key, value) => {
+            if (typeof value === 'object' && value !== null) {
+              if (cache.has(value)) return '[Circular]';
+              cache.add(value);
+            }
+            if (typeof value === 'bigint') return value.toString();
+            return value;
+          });
+          return JSON.parse(str);
+        } catch (err) {
+          return String(obj);
+        }
+      }
+
+      ['log', 'warn', 'error', 'info'].forEach(method => {
+        const original = console[method];
+        if (original) {
+          console[method] = function(...args) {
+            const sanitizedArgs = args.map(arg => (arg && typeof arg === 'object' ? safeSanitize(arg) : arg));
+            original.apply(this, sanitizedArgs);
+          };
+        }
+      });
+
+      window.addEventListener('unhandledrejection', function(event) {
+        event.preventDefault();
+        const reason = event.reason;
+        console.warn("Unhandled Rejection: " + (reason ? (reason.message || String(reason)) : "Unknown"));
+      });
+
+      window.addEventListener('error', function(event) {
+        event.preventDefault();
+        console.warn("Uncaught Error: " + (event.error ? (event.error.message || String(event.error)) : event.message));
+      });
+    })();
+  </script>
 
   <!-- Premium Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -20,26 +80,13 @@
     :root {
       --brand-blue: #4D96FF;
       --brand-mint: #6BCB77;
-      --brand-lavender: #9B72AA;
       --brand-bg: #F8F9FC;
     }
-
     body {
       font-family: 'Plus Jakarta Sans', 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background-color: var(--brand-bg);
       -webkit-tap-highlight-color: transparent;
     }
-
-    /* Elegant Custom Animations */
-    .animate-float {
-      animation: float 4s ease-in-out infinite;
-    }
-
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-6px); }
-    }
-
     .custom-scroll::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -49,25 +96,21 @@
       border-radius: 10px;
     }
     .custom-scroll::-webkit-scrollbar-thumb {
-      background: rgba(0, 0, 0, 0.08);
+      background: rgba(0, 0, 0, 0.12);
       border-radius: 10px;
     }
     .custom-scroll::-webkit-scrollbar-thumb:hover {
-      background: rgba(0, 0, 0, 0.15);
-    }
-
-    .word-break-optimized {
-      word-break: keep-all; 
-      overflow-wrap: break-word;
+      background: rgba(0, 0, 0, 0.2);
     }
   </style>
 
-  <!-- Firebase Integration -->
+  <!-- Firebase Web SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getStorage, ref, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
-    import { getFirestore, collection, getDocs, query, orderBy, deleteDoc, doc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
+    import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+    import { getFirestore, collection, addDoc, serverTimestamp, doc, getDoc, setDoc, updateDoc, getDocs, query, where, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    
     const firebaseConfig = {
       apiKey: "AIzaSyDYOJZNuB72oFPskOunQa0V98eaXFuyfiw",
       authDomain: "point-junior-speaking.firebaseapp.com",
@@ -78,1145 +121,682 @@
     };
 
     const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
     const storage = getStorage(app);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
 
-    window._db = db;
-    window._storage = storage;
-    window._collection = collection;
-    window._getDocs = getDocs;
-    window._query = query;
-    window._orderBy = orderBy;
-    window._deleteDoc = deleteDoc;
-    window._doc = doc;
-    window._updateDoc = updateDoc;
-    window._onSnapshot = onSnapshot;
-    window._ref = ref;
-    window._deleteObject = deleteObject;
-    window._firebaseReady = true;
+    window._fb = { auth, storage, db, ref, uploadBytesResumable, getDownloadURL, collection, addDoc, serverTimestamp, doc, getDoc, setDoc, updateDoc, getDocs, query, where, orderBy, limit, deleteDoc };
 
-    document.dispatchEvent(new Event('firebaseReady'));
+    signInAnonymously(auth)
+      .then(() => {
+        console.log("Admin Firebase Auth Connected ✔️");
+        window._firebaseReady = true;
+        if (window.fetchAdminData) window.fetchAdminData();
+      })
+      .catch((err) => {
+        console.warn("Firebase Auth error:", err);
+        window._firebaseReady = true;
+        if (window.fetchAdminData) window.fetchAdminData();
+      });
   </script>
 </head>
-<body class="text-slate-800 leading-snug">
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
 
-  <!-- ==================== SECURITY LOGIN CARD OVERLAY ==================== -->
-  <div id="scAdminLogin" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-white border border-slate-100 p-6 xs:p-8 sm:p-10 rounded-[28px] sm:rounded-[36px] shadow-2xl max-w-sm w-full text-center relative overflow-hidden flex flex-col justify-center">
-      <div class="absolute top-0 right-0 w-32 h-32 bg-blue-100/20 blur-3xl rounded-full"></div>
-      <div class="absolute bottom-0 left-0 w-32 h-32 bg-purple-100/20 blur-3xl rounded-full"></div>
-      
-      <div class="text-center mb-6 z-10 flex flex-col items-center justify-center">
-        <!-- Shield Point Logo -->
-        <div class="w-24 h-24 mb-3 filter drop-shadow-md select-none animate-float rounded-2xl overflow-hidden flex items-center justify-center bg-slate-50 p-1">
-          <img class="w-full h-full object-contain rounded-xl" src="/src/assets/images/logo.png" alt="Point Academy Logo" referrerPolicy="no-referrer" />
-        </div>
-        <h2 class="text-lg sm:text-xl font-black text-slate-800 tracking-tight leading-snug">Point Junior Speaking</h2>
-        <span class="text-[10px] font-black text-[#4D96FF] uppercase tracking-widest mt-1">선생님 통합 스마트보드</span>
-        <p class="text-[11px] text-slate-400 font-bold mt-2 leading-relaxed break-keep px-1">
-          보증된 관리 비밀번호를 입력해주세요
-        </p>
-      </div>
-
-      <div class="space-y-4 z-10">
-        <div class="space-y-1 text-left">
-          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">선생님 관리 비밀번호</label>
-          <div class="relative">
-            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-slate-400 select-none">🔒</span>
-            <input id="adminPw" type="password" placeholder="숫자 4자리" maxlength="4"
-              class="w-full border-2 border-slate-100/90 rounded-2xl py-3.5 pl-11 pr-4 text-xs font-extrabold text-slate-700 placeholder-slate-300 focus:outline-none focus:border-[#4D96FF] transition-colors bg-slate-50/50"
-              onkeydown="if(event.key==='Enter')doAdminLogin()"/>
-          </div>
-        </div>
-
-        <div id="adminLoginError" class="hidden bg-rose-50 border border-rose-100 text-rose-500 font-extrabold text-[11px] p-3.5 rounded-2xl text-center">
-          😢 비밀번호가 기억나지 않으시거나 일치하지 않아요.
-        </div>
-
-        <button onclick="doAdminLogin()" class="w-full bg-gradient-to-r from-[#4D96FF] to-indigo-500 text-white text-xs font-black py-4 rounded-2xl cursor-pointer shadow-lg shadow-blue-100 active:scale-98 transition-all flex items-center justify-center gap-1.5">
-          <i data-lucide="shield-check" class="w-4 h-4"></i>
-          <span>선생님 전용 로그인</span>
-        </button>
-      </div>
-
-      <div class="text-center mt-6 pt-3 border-t border-slate-50 z-10">
-        <span class="text-[9px] font-extrabold text-slate-300 tracking-wider">Point Academy Administrative Space</span>
-      </div>
-    </div>
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 scale-90 opacity-0 pointer-events-none bg-slate-900/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl text-xs font-bold shadow-xl shadow-slate-900/20 z-[999] flex items-center gap-2 transition-all duration-300">
+    <span id="toastText">알림 메시지</span>
   </div>
 
-
-  <!-- ==================== MAIN DASHBOARD SPACE ==================== -->
-  <div id="scAdminDash" class="min-h-screen flex flex-col justify-between relative bg-slate-50/70">
-    
-    <!-- Header -->
-    <header class="bg-[#4D96FF] border-b border-blue-400/30 sticky top-0 z-40 px-4 sm:px-6 py-3.5 flex items-center justify-between transition-all duration-300 shadow-sm">
-      <div class="flex items-center gap-2.5">
-        <div class="w-10 h-10 rounded-xl overflow-hidden bg-white border border-white/20 p-1 flex items-center justify-center shadow-inner select-none animate-float shrink-0">
-          <img class="w-full h-full object-contain rounded-lg" src="/src/assets/images/logo.png" alt="Point Academy Logo" referrerPolicy="no-referrer" />
-        </div>
-        <div class="text-left">
-          <h1 class="text-xs sm:text-sm font-black text-white tracking-tight leading-none flex items-center gap-1">
-            Point Junior Speaking <span class="text-[#E0F2FE]">관리자용</span>
-          </h1>
-          <span class="text-[9px] text-blue-100/95 font-extrabold tracking-widest uppercase">Smart Homework Board</span>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2.5">
-        <button onclick="logoutAdmin()" class="bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl px-3 py-2 text-white font-extrabold text-xs transition-all duration-200 flex items-center gap-1 active:scale-95">
-          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
-          <span>선생님 로그아웃</span>
-        </button>
-        <a href="/" class="bg-white text-[#4D96FF] hover:bg-blue-50 rounded-xl px-3.5 py-2 font-black text-xs transition-all duration-200 flex items-center gap-1 shadow-sm active:scale-95">
-          <i data-lucide="home" class="w-3.5 h-3.5"></i>
-          <span>학생 학습페이지 이동</span>
-        </a>
-      </div>
-    </header>
-
-    <!-- Content Area -->
-    <main class="flex-1 w-full max-w-6xl mx-auto px-4 py-6 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      
-      <!-- LEFT OR TOP PANEL: STATS & CONTROLS (4 Columns) -->
-      <section class="lg:col-span-4 space-y-6">
-        
-        <!-- Statistics Panel Card -->
-        <div class="bg-white border border-slate-100 rounded-3xl p-5 shadow-xs space-y-4">
-          <div class="flex justify-between items-center">
-            <h3 class="text-xs font-black tracking-wider uppercase text-slate-400 flex items-center gap-1.5">
-              <i data-lucide="activity" class="w-3.5 h-3.5 text-[#4D96FF]"></i>
-              실시간 학습지표
-            </h3>
-            <span id="txtSyncTime" class="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">대기 중</span>
-          </div>
-
-          <!-- Statistics Grid -->
-          <div class="grid grid-cols-2 gap-3.5 pt-1">
-            <div class="bg-slate-50/50 border border-slate-100/60 p-3.5 rounded-2xl text-left flex flex-col justify-between">
-              <span class="text-[9px] text-slate-400 font-extrabold tracking-tight">전체 제출 수</span>
-              <h4 id="statTotalSub" class="text-xl sm:text-2xl font-black text-slate-800 leading-none mt-2">0건</h4>
-            </div>
-
-            <div class="bg-slate-50/50 border border-slate-100/60 p-3.5 rounded-2xl text-left flex flex-col justify-between">
-              <span class="text-[9px] text-slate-400 font-extrabold tracking-tight">현재 미제출</span>
-              <h4 id="statMissing" class="text-xl sm:text-2xl font-black text-rose-500 leading-none mt-2">0명</h4>
-            </div>
-
-            <div class="bg-slate-50/50 border border-slate-100/60 p-3.5 rounded-2xl text-left flex flex-col justify-between col-span-2">
-              <div class="flex justify-between items-center">
-                <span class="text-[9px] text-slate-400 font-extrabold tracking-tight">평균 문장 통과율 (발음도전)</span>
-                <span id="statRatePct" class="text-[10px] font-black text-[#6BCB77]">0%</span>
-              </div>
-              <div class="h-2 bg-slate-100 rounded-full overflow-hidden mt-2.5">
-                <div id="statRateBar" class="h-full bg-gradient-to-r from-teal-400 to-[#6BCB77] rounded-full" style="width: 0%"></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex gap-2 pt-2">
-            <button onclick="loadRemoteData()" class="flex-1 bg-blue-50 hover:bg-blue-100 text-[#4D96FF] border border-blue-100 font-extrabold text-xs py-3 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-98">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span>지표 새로고침</span>
-            </button>
-            <button onclick="triggerResetAll()" class="bg-rose-50 hover:bg-rose-100 text-rose-500 border border-rose-100 font-extrabold text-xs px-3 py-3 rounded-xl flex items-center justify-center cursor-pointer transition-all active:scale-98" title="전체 데이터 삭제 및 초기화">
-              <i data-lucide="trash-2" class="w-4 h-4"></i>
-            </button>
-          </div>
-        </div>
-
-        <!-- Searching, Filtering, and Submissions controls Card -->
-        <div class="bg-white border border-slate-100 rounded-3xl p-5 shadow-xs space-y-4 text-left">
-          <h3 class="text-xs font-black tracking-wider uppercase text-slate-400 flex items-center gap-1.5">
-            <i data-lucide="sliders" class="w-3.5 h-3.5 text-[#4D96FF]"></i>
-            검색 및 정교 필터
-          </h3>
-
-          <div class="space-y-3.5">
-            <!-- Search field -->
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">학생 검색</label>
-              <div class="relative">
-                <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 select-none">
-                  <i data-lucide="search" class="w-3.5 h-3.5"></i>
-                </span>
-                <input id="filterSearch" type="text" placeholder="검색할 학생 이름 입력 (예: 김태연)"
-                  class="w-full border border-slate-100 rounded-xl py-2.5 pl-9 pr-4 text-xs font-extrabold text-slate-700 placeholder-slate-300 focus:outline-none focus:border-[#4D96FF] transition-colors bg-slate-50/20"
-                  oninput="applyFilters()" />
-              </div>
-            </div>
-
-            <!-- Unit selectors dropdown -->
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">스피킹 챌린지 선택</label>
-              <select id="filterUnit" onchange="applyFilters()"
-                class="w-full border border-slate-100 rounded-xl py-2.5 px-3.5 text-xs font-extrabold text-slate-600 bg-slate-50/20 focus:outline-none focus:border-[#4D96FF]">
-                <option value="all">전체 스크립트</option>
-                <option value="1">4/3 Script (Unit 1)</option>
-                <option value="2">4/17 Script (Unit 2)</option>
-                <option value="3">5/1 Script (Unit 3)</option>
-                <option value="4">5/8 Script (Unit 4)</option>
-              </select>
-            </div>
-
-            <!-- Class filters tab-group -->
-            <div class="space-y-1.5">
-              <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">분반 필터</label>
-              <div class="grid grid-cols-2 gap-1.5">
-                <button onclick="changeClassFilter('all')" class="class-filter-tab bg-[#4D96FF] text-white border border-[#4D96FF]/20 font-extrabold text-[10px] py-2 rounded-lg cursor-pointer transition-colors" data-class="all">전체 반</option>
-                <button onclick="changeClassFilter('E.S.1반')" class="class-filter-tab bg-slate-50 text-slate-500 hover:text-slate-800 border border-slate-100 font-extrabold text-[10px] py-2 rounded-lg cursor-pointer transition-colors animate-fade" data-class="E.S.1반">E.S.1반</option>
-                <button onclick="changeClassFilter('E.S.2반')" class="class-filter-tab bg-slate-50 text-slate-500 hover:text-slate-800 border border-slate-100 font-extrabold text-[10px] py-2 rounded-lg cursor-pointer transition-colors" data-class="E.S.2반">E.S.2반</option>
-                <button onclick="changeClassFilter('E.S.3반')" class="class-filter-tab bg-slate-50 text-slate-500 hover:text-slate-800 border border-slate-100 font-extrabold text-[10px] py-2 rounded-lg cursor-pointer transition-colors" data-class="E.S.3반">E.S.3반</option>
-                <button onclick="changeClassFilter('P-E.S반')" class="class-filter-tab bg-slate-50 text-slate-500 hover:text-slate-800 border border-slate-100 font-extrabold text-[10px] py-2 rounded-lg cursor-pointer transition-colors col-span-2" data-class="P-E.S반">P-E.S반</option>
-              </div>
-            </div>
-
-            <!-- Toggle switches / settings checkboxes -->
-            <div class="pt-2 border-t border-slate-50 flex flex-col gap-3">
-              <label class="flex items-center gap-2 cursor-pointer select-none">
-                <input id="filterUnsubmitted" type="checkbox" onchange="applyFilters()" class="w-4 h-4 rounded border-slate-200 text-[#4D96FF] focus:ring-[#4D96FF] cursor-pointer"/>
-                <span class="text-[11px] font-bold text-slate-650">미제출 학생들만 따로 모아보기</span>
-              </label>
-
-              <label class="flex items-center gap-2 cursor-pointer select-none">
-                <input id="filterFeedbackNeeded" type="checkbox" onchange="applyFilters()" class="w-4 h-4 rounded border-slate-200 text-[#4D96FF] focus:ring-[#4D96FF] cursor-pointer" />
-                <span class="text-[11px] font-bold text-slate-650">피드백 작성 필요한 과제만 보기</span>
-              </label>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- 기타 란: 포인트 선생님 테스트용 기록 -->
-        <div class="bg-white border border-slate-100 rounded-3xl p-5 shadow-xs space-y-4 text-left">
-          <div class="flex justify-between items-center border-b border-slate-50 pb-2">
-            <h3 class="text-xs font-black tracking-wider uppercase text-slate-400 flex items-center gap-1.5">
-              <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-indigo-500"></i>
-              기타 제출 기록 (포인트 선생님)
-            </h3>
-            <span class="text-[9px] font-black text-indigo-500 bg-indigo-50/60 border border-indigo-150 px-1.5 py-0.5 rounded-md">관리자</span>
-          </div>
-          <p class="text-[11px] text-slate-400 font-bold leading-normal word-break-optimized">
-            선생님 계정(포인트)으로 등록하신 보증 마이크 녹음 테스트 기록입니다. 일반 학생들의 성취도 지표 및 백엔드 학습 통계에는 전혀 합산되지 않습니다.
-          </p>
-          <div id="adminTestSubmissionsContainer" class="space-y-2 max-h-72 overflow-y-auto custom-scroll pr-1 pb-1">
-            <p class="text-[11px] text-slate-400 text-center font-bold py-6 bg-slate-50/50 rounded-2xl border border-dashed border-slate-100">
-              조회 중...
-            </p>
-          </div>
-        </div>
-
-      </section>
-
-      <!-- RIGHT PANEL: STUDENT CARDS LIST GRID (8 Columns) -->
-      <section class="lg:col-span-8 space-y-5">
-        
-        <div class="flex justify-between items-center bg-white border border-slate-100 rounded-2xl px-5 py-3.5 shadow-xs">
-          <span id="txtListCount" class="text-xs font-black text-slate-500">학생 숙제 목록 (로딩 중...)</span>
-          <div class="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-400">
-            <span class="w-2.5 h-2.5 rounded-full bg-[#6BCB77]"></span> 완료
-            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 ml-1"></span> 연습 필요
-            <span class="w-2.5 h-2.5 rounded-full bg-slate-200 ml-1"></span> 미제출
-          </div>
-        </div>
-
-        <!-- Student Submission Items Container -->
-        <div id="studentContainer" class="space-y-4">
-          <!-- Dynamic cards list injected here -->
-          <div class="bg-white border border-slate-100 rounded-[32px] p-10 text-center text-slate-400">
-            <div class="animate-spin w-6 h-6 border-2 border-[#4D96FF] border-t-transparent rounded-full inline-block mb-3"></div>
-            <p class="text-xs font-black">실시간 제출 현황 스마트보드를 연동하는 중입니다...</p>
-          </div>
-        </div>
-
-      </section>
-
-    </main>
-
-    <!-- Footer -->
-    <footer class="bg-white border-t border-slate-100 px-5 py-5 text-center">
-      <p class="text-[10px] text-slate-350 font-bold tracking-tight">
-        Point Junior Speaking Course Administrative Console © 2026 • Professional Design Style
-      </p>
-    </footer>
-
-  </div>
-
-
-  <!-- ==================== PREMIUM HTML5 TRANSLUCENT CUSTOM AUDIO PLAYER PANEL ==================== -->
-  <div id="adminAudioPanel" class="fixed bottom-6 right-6 z-50 bg-white/95 backdrop-blur-md border border-slate-100 rounded-3xl p-4.5 shadow-2xl w-80 sm:w-96 hidden transform translate-y-20 opacity-0 transition-all duration-350 flex flex-col space-y-3.5">
-    <div class="flex justify-between items-center border-b border-slate-50 pb-2.5">
-      <div class="flex items-center gap-2 text-left">
-        <span class="text-2xl select-none leading-none">🎙️</span>
-        <div>
-          <h4 id="audioPlayerName" class="text-xs font-black text-slate-800 leading-tight">학생 녹음 확인</h4>
-          <span id="audioPlayerMeta" class="text-[10px] font-bold text-slate-400">대화 카드 #1</span>
-        </div>
-      </div>
-      <button onclick="closeGlobalAudio()" class="w-7 h-7 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer transition-colors">
-        <i data-lucide="x" class="w-4 h-4"></i>
-      </button>
-    </div>
-
-    <!-- Interface controls -->
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200/80 sticky top-0 z-40 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-xs">
     <div class="flex items-center gap-3">
-      <!-- Plain HTML5 audio tag -->
-      <audio id="globalHtml5Audio" class="hidden" ontimeupdate="updateAudioProgress()" onended="onAudioEnded()"></audio>
-      
-      <button id="btnAudioPlay" onclick="togglePlayAudio()" class="w-11 h-11 rounded-full bg-[#4D96FF] text-white flex items-center justify-center cursor-pointer shadow-md hover:scale-105 active:scale-95 transition-all">
-        <i data-lucide="play" id="audioPlayIcon" class="w-5 h-5 fill-white ml-0.5"></i>
+      <div class="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 p-1.5 flex items-center justify-center shadow-xs shrink-0">
+        <img class="w-full h-full object-contain rounded-xl" src="/src/assets/images/logo.png" alt="Point Academy Logo" referrerPolicy="no-referrer" />
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm sm:text-base font-black text-slate-800 tracking-tight leading-none">
+            Point Junior Speaking
+          </h1>
+          <span class="bg-blue-50 text-blue-600 border border-blue-100 font-extrabold text-[10px] px-2 py-0.5 rounded-full">
+            선생님 관리용 👩‍🏫
+          </span>
+        </div>
+        <p class="text-[11px] text-slate-400 font-bold mt-0.5">학생 녹음본 제출 확인 및 평가 관리</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button onclick="fetchAdminData()" class="p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs flex items-center gap-1.5 transition-all cursor-pointer" title="데이터 새로고침">
+        <i data-lucide="refresh-cw" class="w-3.5 h-3.5" id="refreshIcon"></i>
+        <span class="hidden sm:inline">새로고침</span>
       </button>
 
-      <!-- Dynamic Slider progress tracker -->
-      <div class="flex-1 space-y-1">
-        <input id="audioProgSlider" type="range" value="0" min="0" max="100" oninput="seekAudio(this.value)" class="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-[#4D96FF]"/>
-        <div class="flex justify-between text-[9px] font-extrabold text-slate-400">
-          <span id="audioTimeCurrent">00:00</span>
-          <span id="audioTimeTotal">00:00</span>
+      <a href="/index.html" class="px-3 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-black text-xs flex items-center gap-1.5 shadow-sm shadow-blue-200 transition-all cursor-pointer">
+        <i data-lucide="mic" class="w-3.5 h-3.5"></i>
+        <span>학생 포털로 가기</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+    <!-- Primary Mode Switcher (2 Tabs Only) -->
+    <div class="bg-slate-200/70 p-1.5 rounded-2xl flex items-center gap-1.5 shadow-inner border border-slate-200">
+      <button id="tabBtnHw" onclick="switchAdminTab('homework')" class="flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 bg-white text-blue-600 shadow-sm cursor-pointer">
+        <i data-lucide="file-audio" class="w-4 h-4 text-blue-500"></i>
+        <span>📝 학생 숙제 녹음본 확인</span>
+      </button>
+      <button id="tabBtnMTest" onclick="switchAdminTab('monthly')" class="flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 text-slate-600 hover:text-slate-900 cursor-pointer">
+        <i data-lucide="award" class="w-4 h-4 text-indigo-500"></i>
+        <span>📊 Monthly 테스트 녹음 확인 (1~20번)</span>
+      </button>
+    </div>
+
+    <!-- Filter & Control Bar -->
+    <div class="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-xs space-y-4">
+      
+      <!-- Upper: Date/Month selector + Quick Stats -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        
+        <!-- Homework Date Selector -->
+        <div id="hwDateControl" class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-black text-slate-500 flex items-center gap-1">
+            <i data-lucide="calendar" class="w-4 h-4 text-blue-500"></i>
+            숙제 날짜:
+          </span>
+          <input id="adminHwDateInput" type="date" onchange="onAdminHwDateChanged()" class="border-2 border-slate-100 rounded-xl py-2 px-3 text-xs font-black text-slate-700 bg-slate-50 focus:outline-none focus:border-blue-400 cursor-pointer" />
+          <button onclick="setAdminHwToday()" class="bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-black px-3 py-2 rounded-xl transition-all cursor-pointer">
+            오늘
+          </button>
+        </div>
+
+        <!-- Monthly Test Month Selector -->
+        <div id="mTestMonthControl" class="hidden flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-black text-slate-500 flex items-center gap-1">
+            <i data-lucide="calendar-days" class="w-4 h-4 text-indigo-500"></i>
+            시험 월:
+          </span>
+          <input id="adminMTestMonthInput" type="month" onchange="onAdminMTestMonthChanged()" class="border-2 border-slate-100 rounded-xl py-2 px-3 text-xs font-black text-slate-700 bg-slate-50 focus:outline-none focus:border-indigo-400 cursor-pointer" />
+          <button onclick="setAdminMTestCurrentMonth()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-xs font-black px-3 py-2 rounded-xl transition-all cursor-pointer">
+            이번 달
+          </button>
+        </div>
+
+        <!-- Submission Summary Counters -->
+        <div class="flex items-center gap-2">
+          <span id="statSubmittedBadge" class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            제출 완료: <span id="txtSubmittedCount" class="font-extrabold">0명</span>
+          </span>
+          <span id="statUnsubmittedBadge" class="bg-rose-50 text-rose-600 border border-rose-200 text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            미제출: <span id="txtUnsubmittedCount" class="font-extrabold">0명</span>
+          </span>
+        </div>
+
+      </div>
+
+      <!-- Lower: Class Filters & Search -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+        <!-- Class filter chips -->
+        <div class="flex items-center gap-1.5 flex-wrap" id="classFilterChips">
+          <button onclick="setClassFilter('all')" data-class="all" class="cls-chip bg-blue-500 text-white text-xs font-black px-3 py-1.5 rounded-xl cursor-pointer shadow-xs transition-all">
+            전체 분반
+          </button>
+          <button onclick="setClassFilter('E.S.1반')" data-class="E.S.1반" class="cls-chip bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-black px-3 py-1.5 rounded-xl cursor-pointer transition-all">
+            E.S.1반
+          </button>
+          <button onclick="setClassFilter('E.S.2반')" data-class="E.S.2반" class="cls-chip bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-black px-3 py-1.5 rounded-xl cursor-pointer transition-all">
+            E.S.2반
+          </button>
+          <button onclick="setClassFilter('E.S.3반')" data-class="E.S.3반" class="cls-chip bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-black px-3 py-1.5 rounded-xl cursor-pointer transition-all">
+            E.S.3반
+          </button>
+          <button onclick="setClassFilter('P-E.S반')" data-class="P-E.S반" class="cls-chip bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-black px-3 py-1.5 rounded-xl cursor-pointer transition-all">
+            P-E.S반
+          </button>
+        </div>
+
+        <!-- Search + Unsubmitted only toggle -->
+        <div class="flex items-center gap-2">
+          <div class="relative flex-1 sm:w-48">
+            <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+            <input id="inpSearchStudent" type="text" placeholder="학생 이름 검색..." oninput="renderAdminList()" class="w-full border border-slate-200 rounded-xl py-1.5 pl-8 pr-3 text-xs font-black text-slate-700 bg-slate-50/50 focus:outline-none focus:border-blue-400" />
+          </div>
+
+          <button id="btnToggleUnsubmittedOnly" onclick="toggleUnsubmittedFilter()" class="bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-black px-3 py-2 rounded-xl transition-all flex items-center gap-1 cursor-pointer shrink-0">
+            <span id="unsubmittedIcon">❌</span>
+            <span id="unsubmittedText">미제출자만 보기</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Student Cards Container -->
+    <div class="space-y-4">
+      <div class="flex items-center justify-between px-1">
+        <h3 id="listTitle" class="text-xs sm:text-sm font-black text-slate-700 flex items-center gap-2">
+          <span>학생 명단 및 녹음 확인</span>
+        </h3>
+        <span id="totalStudentsCount" class="text-xs font-bold text-slate-400">총 0명</span>
+      </div>
+
+      <!-- Main Student Card List -->
+      <div id="studentCardsContainer" class="space-y-3.5">
+        <!-- Rendered via JavaScript -->
+        <div class="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400 space-y-2">
+          <div class="w-8 h-8 mx-auto rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+          <p class="text-xs font-bold">학생 녹음 데이터를 불러오는 중입니다...</p>
         </div>
       </div>
     </div>
-  </div>
 
+  </main>
 
-  <!-- Notification Toast feedback panel -->
-  <div id="adminToast" class="fixed bottom-6 left-1/2 -translate-x-1/2 scale-90 opacity-0 pointer-events-none bg-slate-900/90 backdrop-blur-md text-white px-5 py-3 rounded-2xl text-xs font-bold shadow-xl z-50 flex items-center gap-2 transition-all duration-300">
-    <span id="adminToastText">피드백을 안전하게 반영했습니다</span>
-  </div>
+  <!-- Footer -->
+  <footer class="mt-auto py-6 border-t border-slate-200/60 bg-white text-center text-xs font-bold text-slate-400">
+    Point Junior Speaking Academy • Teacher Management Portal
+  </footer>
 
-
-  <!-- ==================== LOGIQUE CORES ==================== -->
+  <!-- ==================== APPLICATION SCRIPTS ==================== -->
   <script>
-    // System Constants mapped exactly to the student page databases
-    const CLASS_MAP = {
-      "김태연": "E.S.1반", "박주성": "E.S.1반", "정진호": "E.S.1반",
-      "한바로": "E.S.1반", "안서윤": "E.S.1반", "강민서": "E.S.1반",
-      "김지안": "E.S.2반", "백지선": "E.S.2반", "김승아": "E.S.2반",
-      "정선우": "E.S.3반",
-      "강준서": "P-E.S반"
-    };
+    // ── Built-in Student Roster ──
+    const DEFAULT_STUDENTS = [
+      { name: "김태연", cls: "E.S.1반" },
+      { name: "박주성", cls: "E.S.1반" },
+      { name: "정진호", cls: "E.S.1반" },
+      { name: "한바로", cls: "E.S.1반" },
+      { name: "안서윤", cls: "E.S.1반" },
+      { name: "강민서", cls: "E.S.1반" },
+      { name: "김지안", cls: "E.S.2반" },
+      { name: "백지선", cls: "E.S.2반" },
+      { name: "김승아", cls: "E.S.2반" },
+      { name: "정선우", cls: "E.S.3반" },
+      { name: "강준서", cls: "P-E.S반" }
+    ];
 
-    const CLASS_LIST = ["E.S.1반", "E.S.2반", "E.S.3반", "P-E.S반"];
-
-    // Units details mapped exactly
-    const LOCAL_UNITS_METADATA = {
-      1: { name: "4/3 Script", dialoguesCount: 10 },
-      2: { name: "4/17 Script", dialoguesCount: 15 },
-      3: { name: "5/1 Script", dialoguesCount: 10 },
-      4: { name: "5/8 Script", dialoguesCount: 10 }
-    };
-
-    const ADMIN_CREDS = { name: "포인트", pw: "2384" };
-
-    // Remote datasets from Firebase
+    // ── Application State ──
+    let activeAdminTab = 'homework'; // 'homework' | 'monthly'
+    let selectedAdminDate = getTodayFormatted();
+    let selectedAdminMonth = getCurrentMonthFormatted();
+    let activeClassFilter = 'all';
+    let filterUnsubmittedOnly = false;
     let rawSubmissions = [];
-    let rawHardWords = [];
-    let activeClassFilter = "all";
+    let expandedCards = new Set();
 
-    // Track active expanded sections
-    let localExpandedCards = new Set();
+    function toast(msg) {
+      const t = document.getElementById('toast');
+      const text = document.getElementById('toastText');
+      if (!t || !text) return;
+      text.textContent = msg;
+      t.classList.remove('opacity-0', 'scale-90', 'pointer-events-none');
+      t.classList.add('opacity-100', 'scale-100');
+      clearTimeout(window._toastTimeout);
+      window._toastTimeout = setTimeout(() => {
+        t.classList.remove('opacity-100', 'scale-100');
+        t.classList.add('opacity-0', 'scale-90', 'pointer-events-none');
+      }, 3000);
+    }
 
-    // Verification and Auth initialization
-    document.addEventListener("DOMContentLoaded", () => {
-      revealDashboard();
+    function getTodayFormatted() {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function getCurrentMonthFormatted() {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      return `${y}-${m}`;
+    }
+
+    // Initialize UI on load
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('adminHwDateInput').value = selectedAdminDate;
+      document.getElementById('adminMTestMonthInput').value = selectedAdminMonth;
+      lucide.createIcons();
     });
 
-    document.addEventListener("firebaseReady", () => {
-      loadRemoteData();
-    });
+    // ----------------------------------------------------
+    // TAB SWITCHING
+    // ----------------------------------------------------
+    function switchAdminTab(tab) {
+      activeAdminTab = tab;
+      const btnHw = document.getElementById('tabBtnHw');
+      const btnMTest = document.getElementById('tabBtnMTest');
+      const hwCtrl = document.getElementById('hwDateControl');
+      const mTestCtrl = document.getElementById('mTestMonthControl');
 
-    function doAdminLogin() {
-      // Bypassed: Reveal and load immediately
-      revealDashboard();
-      loadRemoteData();
+      if (tab === 'homework') {
+        btnHw.className = "flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 bg-white text-blue-600 shadow-sm cursor-pointer";
+        btnMTest.className = "flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 text-slate-600 hover:text-slate-900 cursor-pointer";
+        hwCtrl.classList.remove('hidden');
+        mTestCtrl.classList.add('hidden');
+      } else {
+        btnMTest.className = "flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 bg-white text-indigo-600 shadow-sm cursor-pointer";
+        btnHw.className = "flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 text-slate-600 hover:text-slate-900 cursor-pointer";
+        mTestCtrl.classList.remove('hidden');
+        hwCtrl.classList.add('hidden');
+      }
+
+      renderAdminList();
+      lucide.createIcons();
     }
 
-    function revealDashboard() {
-      document.getElementById("scAdminLogin").classList.add("hidden");
-      document.getElementById("scAdminDash").classList.remove("hidden");
-      setTimeout(() => {
-        lucide.createIcons();
-      }, 50);
+    function setAdminHwToday() {
+      selectedAdminDate = getTodayFormatted();
+      document.getElementById('adminHwDateInput').value = selectedAdminDate;
+      renderAdminList();
     }
 
-    function logoutAdmin() {
-      closeGlobalAudio();
-      // Redirect to student page
-      window.location.href = "/";
+    function onAdminHwDateChanged() {
+      const val = document.getElementById('adminHwDateInput').value;
+      if (val) {
+        selectedAdminDate = val;
+        renderAdminList();
+      }
     }
 
-    let unsubSubmissions = null;
-    let unsubHardWords = null;
+    function setAdminMTestCurrentMonth() {
+      selectedAdminMonth = getCurrentMonthFormatted();
+      document.getElementById('adminMTestMonthInput').value = selectedAdminMonth;
+      renderAdminList();
+    }
 
-    // Load full submission indices from Firebase Firestore using real-time sync listeners
-    function loadRemoteData() {
-      if (!window._firebaseReady) return;
-      
-      const txtSync = document.getElementById("txtSyncTime");
-      if (txtSync) txtSync.textContent = "연결 중...";
+    function onAdminMTestMonthChanged() {
+      const val = document.getElementById('adminMTestMonthInput').value;
+      if (val) {
+        selectedAdminMonth = val;
+        renderAdminList();
+      }
+    }
 
-      if (unsubSubmissions) unsubSubmissions();
-      if (unsubHardWords) unsubHardWords();
+    function setClassFilter(cls) {
+      activeClassFilter = cls;
+      document.querySelectorAll('.cls-chip').forEach(btn => {
+        if (btn.getAttribute('data-class') === cls) {
+          btn.className = "cls-chip bg-blue-500 text-white text-xs font-black px-3 py-1.5 rounded-xl cursor-pointer shadow-xs transition-all";
+        } else {
+          btn.className = "cls-chip bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-black px-3 py-1.5 rounded-xl cursor-pointer transition-all";
+        }
+      });
+      renderAdminList();
+    }
+
+    function toggleUnsubmittedFilter() {
+      filterUnsubmittedOnly = !filterUnsubmittedOnly;
+      const btn = document.getElementById('btnToggleUnsubmittedOnly');
+      const text = document.getElementById('unsubmittedText');
+      if (filterUnsubmittedOnly) {
+        btn.className = "bg-rose-500 text-white text-xs font-black px-3 py-2 rounded-xl transition-all flex items-center gap-1 cursor-pointer shrink-0 shadow-xs";
+        text.textContent = "미제출자 필터 적용중";
+      } else {
+        btn.className = "bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-black px-3 py-2 rounded-xl transition-all flex items-center gap-1 cursor-pointer shrink-0";
+        text.textContent = "미제출자만 보기";
+      }
+      renderAdminList();
+    }
+
+    function toggleCard(cardId) {
+      if (expandedCards.has(cardId)) {
+        expandedCards.delete(cardId);
+      } else {
+        expandedCards.add(cardId);
+      }
+      renderAdminList();
+    }
+
+    // ----------------------------------------------------
+    // DATA FETCHING FROM FIRESTORE
+    // ----------------------------------------------------
+    async function fetchAdminData() {
+      const icon = document.getElementById('refreshIcon');
+      if (icon) icon.classList.add('animate-spin');
+
+      const fb = window._fb;
+      if (!fb) {
+        toast('데이터베이스 초기화 대기 중...');
+        return;
+      }
 
       try {
-        const qSub = window._query(window._collection(window._db, 'submissions'), window._orderBy('submittedAt', 'desc'));
-        unsubSubmissions = window._onSnapshot(qSub, (snapshot) => {
-          rawSubmissions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          
-          updateSyncStatus();
-          calculateAggregatedStatistics();
-          applyFilters();
-        }, (error) => {
-          console.error("Submissions sync fail:", error);
-          if (txtSync) txtSync.textContent = "동기화 오류";
+        const snap = await fb.getDocs(fb.collection(fb.db, 'submissions'));
+        rawSubmissions = [];
+        snap.forEach(doc => {
+          rawSubmissions.push({ id: doc.id, ...doc.data() });
         });
 
-        const qHard = window._query(window._collection(window._db, 'hardWords'), window._orderBy('submittedAt', 'desc'));
-        unsubHardWords = window._onSnapshot(qHard, (snapshot) => {
-          rawHardWords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          
-          updateSyncStatus();
-          calculateAggregatedStatistics();
-          applyFilters();
-        }, (error) => {
-          console.error("HardWords sync fail:", error);
-          if (txtSync) txtSync.textContent = "동기화 오류";
-        });
-
-      } catch (e) {
-        console.error("Firestore loading failed:", e);
-        showToast("⚠️ 실시간 데이터 동기화에 실패했습니다.");
-        if (txtSync) txtSync.textContent = "실패";
+        toast(`데이터 동기화 완료 (총 ${rawSubmissions.length}개 기록)`);
+        renderAdminList();
+      } catch (err) {
+        console.error("fetchAdminData error:", err);
+        toast('데이터 로딩 중 오류가 발생했습니다.');
+      } finally {
+        if (icon) icon.classList.remove('animate-spin');
       }
     }
+    window.fetchAdminData = fetchAdminData;
 
-    function updateSyncStatus() {
-      const txtSync = document.getElementById("txtSyncTime");
-      if (!txtSync) return;
-      const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-      txtSync.textContent = `${timeStr} 실시간`;
-    }
+    // ----------------------------------------------------
+    // RENDER LIST BASED ON CURRENT TAB
+    // ----------------------------------------------------
+    function renderAdminList() {
+      const container = document.getElementById('studentCardsContainer');
+      const listTitle = document.getElementById('listTitle');
+      const totalCountEl = document.getElementById('totalStudentsCount');
+      const searchKeyword = (document.getElementById('inpSearchStudent').value || '').trim().toLowerCase();
 
-    // Tab switcher
-    function changeClassFilter(cls) {
-      activeClassFilter = cls;
-      document.querySelectorAll(".class-filter-tab").forEach(tab => {
-        if (tab.getAttribute("data-class") === cls) {
-          tab.className = "class-filter-tab bg-[#4D96FF] text-white border border-[#4D96FF]/20 font-extrabold text-[10px] py-2 rounded-lg cursor-pointer transition-colors";
-        } else {
-          tab.className = "class-filter-tab bg-slate-50 text-slate-500 hover:text-slate-800 border border-slate-100 font-extrabold text-[10px] py-2 rounded-lg cursor-pointer transition-colors";
-        }
-      });
-      applyFilters();
-    }
-
-    // Real-Time dashboard metrics calculations
-    function calculateAggregatedStatistics() {
-      // Exclude "포인트" (Admin/Teacher test account) from calculations
-      const studentSubmissions = rawSubmissions.filter(sub => sub.studentName !== "포인트");
-      document.getElementById("statTotalSub").textContent = `${studentSubmissions.length}건`;
-
-      const selectedUnitInput = document.getElementById("filterUnit").value;
-      const targetUnitId = selectedUnitInput === "all" ? 1 : parseInt(selectedUnitInput);
-
-      // Analyze which students in CLASS_MAP have not submitted any dialogue recordings for targetUnitId
-      const allRegisteredNames = Object.keys(CLASS_MAP).filter(name => name !== "포인트");
-      let missingCount = 0;
-
-      allRegisteredNames.forEach(name => {
-        const subExists = studentSubmissions.some(sub => sub.studentName === name && sub.unitId === targetUnitId);
-        if (!subExists) {
-          missingCount++;
-        }
-      });
-      document.getElementById("statMissing").textContent = `${missingCount}명`;
-
-      // Average Speech Pass Accuracy score tracker, excluding "포인트"
-      let sentenceCompletesCount = 0;
-      let promptPerfectCount = 0;
-
-      rawHardWords.forEach(record => {
-        if (record.studentName === "포인트") return; // Skip teacher tester logs
-        const passes = record.passLog || [];
-        passes.forEach(p => {
-          sentenceCompletesCount++;
-          if (p.tries < 5) {
-            promptPerfectCount++;
-          }
-        });
+      // Filter student list by class and search
+      let students = DEFAULT_STUDENTS.filter(s => {
+        if (activeClassFilter !== 'all' && s.cls !== activeClassFilter) return false;
+        if (searchKeyword && !s.name.toLowerCase().includes(searchKeyword)) return false;
+        return true;
       });
 
-      const avgRate = sentenceCompletesCount > 0 ? Math.round((promptPerfectCount / sentenceCompletesCount) * 100) : 100;
-      document.getElementById("statRatePct").textContent = `${avgRate}%`;
-      document.getElementById("statRateBar").style.width = `${avgRate}%`;
-    }
-
-    // Toggle Specific Student expand row state
-    function toggleCardDetails(cardId) {
-      const detailsEl = document.getElementById(`cd-${cardId}`);
-      const arrowEl = document.getElementById(`carrow-${cardId}`);
-      if (!detailsEl) return;
-
-      if (localExpandedCards.has(cardId)) {
-        localExpandedCards.delete(cardId);
-        detailsEl.classList.add("hidden");
-        if (arrowEl) arrowEl.textContent = "▼";
+      if (activeAdminTab === 'homework') {
+        renderHomeworkTab(students, container, listTitle, totalCountEl);
       } else {
-        localExpandedCards.add(cardId);
-        detailsEl.classList.remove("hidden");
-        if (arrowEl) arrowEl.textContent = "▲";
+        renderMonthlyTestTab(students, container, listTitle, totalCountEl);
       }
+
+      lucide.createIcons();
     }
 
-    // Filters and Search Application Core Engine (Vanilla)
-    function applyFilters() {
-      const queryText = document.getElementById("filterSearch").value.toLowerCase().trim();
-      const selectedUnitInput = document.getElementById("filterUnit").value;
-      const unsubmittedOnly = document.getElementById("filterUnsubmitted").checked;
-      const feedbackNeededOnly = document.getElementById("filterFeedbackNeeded").checked;
+    // ----------------------------------------------------
+    // 1. HOMEWORK RECORDINGS TAB
+    // ----------------------------------------------------
+    function renderHomeworkTab(students, container, listTitle, totalCountEl) {
+      listTitle.innerHTML = `<span>📅 [${selectedAdminDate}] 숙제 녹음 제출 현황</span>`;
 
-      const resultsContainer = document.getElementById("studentContainer");
-      const listCountEl = document.getElementById("txtListCount");
+      let submittedCount = 0;
+      let unsubmittedCount = 0;
+      const cardsHtml = [];
 
-      // We group submissions and statistics based on current filter target
-      const targetUnitId = selectedUnitInput === "all" ? 1 : parseInt(selectedUnitInput);
-      const targetUnitMeta = LOCAL_UNITS_METADATA[targetUnitId] || { name: "Script", dialoguesCount: 10 };
-
-      // Aggregate all active registered students in the map
-      let studentsList = Object.keys(CLASS_MAP).map(name => ({
-        name: name,
-        cls: CLASS_MAP[name],
-        registered: true
-      }));
-
-      // Acknowledge extra users who submitted logs but are not in student roster
-      rawSubmissions.forEach(sub => {
-        if (!studentsList.some(s => s.name === sub.studentName) && sub.studentName !== "포인트") {
-          studentsList.push({
-            name: sub.studentName,
-            cls: "자유 학습반",
-            registered: false
-          });
-        }
-      });
-
-      // Filter by Search Query
-      if (queryText) {
-        studentsList = studentsList.filter(s => s.name.toLowerCase().includes(queryText));
-      }
-
-      // Filter by Class Division
-      if (activeClassFilter !== "all") {
-        studentsList = studentsList.filter(s => s.cls === activeClassFilter);
-      }
-
-      // Assemble list data dynamically
-      const renderedCards = [];
-
-      studentsList.forEach(student => {
-        // Collect submissions of current unit and student
-        const studentUnitSubs = rawSubmissions.filter(sub => sub.studentName === student.name && sub.unitId === targetUnitId);
-        const hasSubmittedAnything = studentUnitSubs.length > 0;
-
-        // Skip if Unsubmitted Filter is active but they submitted
-        if (unsubmittedOnly && hasSubmittedAnything) return;
-        // Skip if Unsubmitted is false but we only want to show unsubmitted
-        if (unsubmittedOnly && !student.registered) return; // ignore unregistered for missing lists
-
-        // Calculate progress stats
-        const dialoguesSet = new Set(studentUnitSubs.map(s => s.dialogueNum));
-        const subCount = dialoguesSet.size;
-        const totalDials = targetUnitMeta.dialoguesCount;
-        const progressPct = totalDials > 0 ? Math.round((subCount / totalDials) * 100) : 0;
-
-        // Gather metrics warnings
-        const studentUnitHardRecords = rawHardWords.filter(h => h.studentName === student.name && h.unitId === targetUnitId);
-        
-        // Count un-feedbacked submissions
-        const pendingFeedbackCount = studentUnitSubs.filter(s => !s.feedbackChecked).length;
-
-        // Skip if Feedback Needed only is checked, but all their submissions have feedback checked
-        if (feedbackNeededOnly && pendingFeedbackCount === 0) return;
-
-        let totalTries = 0;
-        let perfectTries = 0;
-        let studentMissingWords = [];
-
-        studentUnitHardRecords.forEach(rec => {
-          const passLog = rec.passLog || [];
-          passLog.forEach(pl => {
-            totalTries++;
-            if (pl.tries < 5) perfectTries++;
-          });
-          const hardRecs = rec.hardRecords || [];
-          hardRecs.forEach(hr => {
-             if (hr.words) studentMissingWords.push(...hr.words);
-          });
+      students.forEach(student => {
+        // Find homework submissions for this student on the selected date
+        const matches = rawSubmissions.filter(sub => {
+          if (sub.studentName !== student.name) return false;
+          // Must match date or be a homework type with this date
+          const dateMatch = sub.date === selectedAdminDate || (sub.unitName && sub.unitName.includes(selectedAdminDate));
+          const isHwType = sub.type === 'homework' || (!sub.type && !sub.questionNum);
+          return dateMatch && isHwType;
         });
 
-        const successRate = totalTries > 0 ? Math.round((perfectTries / totalTries) * 100) : null;
+        const isSubmitted = matches.length > 0;
+        if (isSubmitted) submittedCount++;
+        else unsubmittedCount++;
 
-        // Visual indicator of student status
-        let statusBadgeClass = "bg-slate-100 text-slate-500 pr-3 pl-2.5";
-        let statusText = "미제출";
-        let cardBgBorderClass = "bg-white border border-slate-100";
-        
-        if (hasSubmittedAnything) {
-          const hasSignificantDifficulties = studentMissingWords.length > 3 || (successRate !== null && successRate < 65);
-          if (hasSignificantDifficulties) {
-            statusBadgeClass = "bg-amber-50 text-amber-655 border border-amber-200/50 pr-3 pl-2.5";
-            statusText = "연습 필요";
-            cardBgBorderClass = "bg-white border-2 border-amber-200";
-          } else {
-            statusBadgeClass = "bg-emerald-50 text-emerald-600 border border-emerald-200/50 pr-3 pl-2.5";
-            statusText = "제출 완료";
-            cardBgBorderClass = "bg-white border border-slate-100";
-          }
+        if (filterUnsubmittedOnly && isSubmitted) return;
+
+        const cardId = `hw_${student.name}_${selectedAdminDate}`;
+        const isExpanded = expandedCards.has(cardId) || isSubmitted; // Expand by default if submitted
+
+        let badgeHtml = "";
+        let borderClass = "";
+
+        if (isSubmitted) {
+          badgeHtml = `
+            <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 shadow-xs">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              ✅ 제출 완료 (${matches.length}건)
+            </span>
+          `;
+          borderClass = "bg-white border border-slate-200 hover:border-emerald-300";
         } else {
-          // Highlight unsubmitted student cards with red border, light-rose background tint, and shadow ring
-          cardBgBorderClass = "bg-rose-50/15 border border-rose-300 ring-1 ring-rose-300/10 shadow-inner";
-          statusBadgeClass = "bg-rose-100 text-rose-700 border border-rose-250 pr-3 pl-2.5 font-bold";
+          badgeHtml = `
+            <span class="bg-rose-50 text-rose-600 border border-rose-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 shadow-xs">
+              <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+              🚨 빨간 ❌ 미제출
+            </span>
+          `;
+          borderClass = "bg-rose-50/20 border-2 border-rose-200 hover:border-rose-300";
         }
 
-        const uniqueCardId = `${student.name}_${targetUnitId}`.replace(/[^a-zA-Z0-9가-힣]/g, "_");
-        const isOpen = localExpandedCards.has(uniqueCardId);
+        // Submissions audio list
+        let recordingsHtml = "";
+        if (isSubmitted) {
+          recordingsHtml = matches.map((sub, idx) => {
+            const timeStr = sub.submittedAt && sub.submittedAt.seconds ? new Date(sub.submittedAt.seconds * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '제출완료';
+            return `
+              <div class="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl space-y-2 text-left">
+                <div class="flex items-center justify-between text-xs font-black">
+                  <span class="text-slate-800 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                    녹음본 #${idx + 1} (${sub.fileName || '숙제음성'})
+                  </span>
+                  <span class="text-[11px] text-slate-400 font-bold">${timeStr}</span>
+                </div>
+                <audio controls src="${sub.fileUrl}" class="w-full rounded-lg" style="height: 36px;"></audio>
+                <div class="flex justify-end gap-2 pt-1">
+                  <a href="${sub.fileUrl}" target="_blank" download="${sub.fileName || 'homework.webm'}" class="text-[11px] text-blue-600 hover:underline flex items-center gap-1 font-bold">
+                    <i data-lucide="download" class="w-3 h-3"></i> 다운로드
+                  </a>
+                </div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          recordingsHtml = `
+            <div class="py-4 text-center text-slate-400 bg-slate-50/60 border border-dashed border-slate-200 rounded-2xl space-y-1">
+              <p class="text-xs font-bold text-rose-500">❌ 아직 제출된 숙제 녹음이 없습니다.</p>
+              <p class="text-[11px] text-slate-400">학생이 숙제를 제출하면 여기에 오디오가 자동으로 표시됩니다.</p>
+            </div>
+          `;
+        }
 
-        // Render card content
-        renderedCards.push(`
-          <div class="${cardBgBorderClass} rounded-[24px] sm:rounded-[32px] p-5.5 shadow-xs text-left relative overflow-hidden transition-all duration-300 hover:shadow-md">
-            
-            <!-- Card Header bar -->
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer" onclick="toggleCardDetails('${uniqueCardId}')">
-              
+        cardsHtml.push(`
+          <div class="${borderClass} rounded-3xl p-4 sm:p-5 transition-all shadow-xs space-y-3">
+            <div class="flex items-center justify-between cursor-pointer" onclick="toggleCard('${cardId}')">
               <div class="flex items-center gap-3">
-                <div class="w-11 h-11 rounded-full bg-slate-105 flex items-center justify-center font-black text-slate-600 text-md select-none flex-shrink-0 border border-slate-100 shadow-inner">
+                <div class="w-10 h-10 rounded-2xl ${isSubmitted ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-700'} flex items-center justify-center font-black text-sm shrink-0">
                   ${student.name[0]}
                 </div>
                 <div>
                   <div class="flex items-center gap-2">
-                    <span class="font-black text-base text-slate-800 leading-tight">${student.name}</span>
-                    <span class="text-[9px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded-md">${student.cls}</span>
+                    <span class="text-sm sm:text-base font-black text-slate-800">${student.name}</span>
+                    <span class="text-[10px] font-black text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-md">${student.cls}</span>
                   </div>
-                  <p class="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-wider">${targetUnitMeta.name} • 발음 진척률 ${progressPct}%</p>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-2 mt-1 sm:mt-0 justify-between sm:justify-end">
-                <!-- Status Badges & feedback notices -->
-                <div class="flex items-center gap-1.5">
-                  ${pendingFeedbackCount > 0 ? `
-                    <span class="text-[10px] font-bold bg-indigo-50 text-indigo-500 border border-indigo-100 px-2 py-1 rounded-full flex items-center gap-1">
-                      <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                      검사 필요
-                    </span>
-                  ` : ""}
-                  <span class="text-[11px] font-black rounded-full py-1 ${statusBadgeClass} flex items-center gap-1">
-                    <span class="w-1.5 h-1.5 rounded-full ${statusText === '미제출' ? 'bg-rose-500 animate-pulse' : statusText === '연습 필요' ? 'bg-amber-400' : 'bg-[#6BCB77]'}"></span>
-                    ${statusText}
-                  </span>
-                </div>
-
-                <div class="flex items-center gap-1">
-                  <span class="w-8 h-8 rounded-full hover:bg-slate-50 flex items-center justify-center text-slate-400 text-xs font-bold transition-all" id="carrow-${uniqueCardId}">
-                    ${isOpen ? "▲" : "▼"}
-                  </span>
-                  <button onclick="event.stopPropagation(); triggerClearStudentLogs('${student.name}')" class="w-8 h-8 rounded-xl hover:bg-rose-50 text-slate-300 hover:text-rose-500 flex items-center justify-center transition-colors" title="${student.name} 학생 로그 전체 초기화">
-                    <i data-lucide="trash-2" class="w-4 h-4"></i>
-                  </button>
-                </div>
-              </div>
-
-            </div>
-
-            <!-- Compact Progressive Loading bar -->
-            <div class="h-1 bg-slate-100 rounded-full overflow-hidden mt-4">
-              <div class="h-full bg-gradient-to-r from-[#4D96FF] to-[#6BCB77] rounded-full transition-all" style="width: ${progressPct}%"></div>
-            </div>
-
-            <!-- Expandable Body Information (Hidden by default unless toggled) -->
-            <div id="cd-${uniqueCardId}" class="${isOpen ? "" : "hidden"} pt-4.5 mt-4 pb-1 border-t border-slate-50 space-y-4">
-              
-              <!-- Difficult Pronunciations warnings -->
-              ${studentMissingWords.length > 0 ? `
-                <div class="bg-amber-50/40 border border-amber-100/60 p-3.5 rounded-2xl">
-                  <span class="text-[10px] uppercase font-black tracking-widest text-amber-500 flex items-center gap-1.5 mb-2">
-                    <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-amber-400"></i>
-                    이 학생이 어려워하고 오답이 잦은 영어 단어 (STT 확인)
-                  </span>
-                  <div class="flex flex-wrap gap-1.5">
-                    ${[...new Set(studentMissingWords)].map(word => `
-                      <span class="text-[10px] font-bold bg-white border border-amber-100/70 text-amber-900 px-2 py-1 rounded-lg">
-                        ⚠️ ${word}
-                      </span>
-                    `).join('')}
-                  </div>
-                </div>
-              ` : ""}
-
-              <!-- Dialogues List verification -->
-              <div class="space-y-3.5">
-                <span class="text-[10px] uppercase font-black tracking-widest text-slate-400 block pl-1">제출 기록 상세 리포트</span>
-                
-                ${hasSubmittedAnything ? `
-                  <div class="overflow-x-auto custom-scroll border border-slate-100/70 rounded-2xl">
-                    <table class="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr class="bg-slate-50 border-b border-slate-100">
-                          <th class="px-4 py-3 font-black text-slate-500">대화 번호</th>
-                          <th class="px-4 py-3 font-black text-slate-500">핵심발음 성공률</th>
-                          <th class="px-4 py-3 font-black text-slate-500">문장별 상세 결과</th>
-                          <th class="px-4 py-3 font-black text-slate-500">전송 및 서명 완료 시간</th>
-                          <th class="px-4 py-3 font-black text-slate-500 text-right">음성 확인</th>
-                        </tr>
-                      </thead>
-                      <tbody class="divide-y divide-slate-50">
-                        ${Array.from({ length: totalDials }).map((_, dIdx) => {
-                          const dialogueNum = dIdx + 1;
-                          const exactSub = studentUnitSubs.find(s => s.dialogueNum === dialogueNum);
-                          const matchingHardRecord = studentUnitHardRecords.find(h => h.dialogueNum === dialogueNum);
-                          
-                          return renderDetailedRow(student.name, targetUnitMeta.name, exactSub, matchingHardRecord, dialogueNum);
-                        }).join('')}
-                      </tbody>
-                    </table>
-                  </div>
-                ` : `
-                  <p class="text-xs text-slate-400 font-semibold leading-relaxed p-4 bg-slate-50/50 rounded-2xl text-center">
-                    아직 ${targetUnitMeta.name}에 등록된 마이크 녹음 대화 결과물이 존재하지 않습니다. 📝
+                  <p class="text-[11px] text-slate-400 font-bold mt-0.5">
+                    ${isSubmitted ? `녹음 ${matches.length}개 등록됨` : '숙제 미제출 상태'}
                   </p>
-                `}
+                </div>
               </div>
 
+              <div class="flex items-center gap-3">
+                ${badgeHtml}
+                <span class="text-slate-400 text-xs font-bold">${isExpanded ? '▲' : '▼'}</span>
+              </div>
+            </div>
+
+            <!-- Expandable recordings section -->
+            <div class="${isExpanded ? '' : 'hidden'} pt-3 border-t border-slate-100 space-y-2">
+              ${recordingsHtml}
             </div>
           </div>
         `);
       });
 
-      resultsContainer.innerHTML = renderedCards.length > 0 
-        ? renderedCards.join('') 
-        : `
-          <div class="bg-white border border-slate-100 rounded-[32px] p-10 text-center text-slate-400">
-            <div class="text-3xl mb-1 select-none">📭</div>
-            <p class="text-xs font-black">선택하신 조건에 해당되는 학생 기록이 없습니다.</p>
-          </div>
-        `;
+      // Update counters
+      document.getElementById('txtSubmittedCount').textContent = `${submittedCount}명`;
+      document.getElementById('txtUnsubmittedCount').textContent = `${unsubmittedCount}명`;
+      totalCountEl.textContent = `총 ${students.length}명 중 ${submittedCount}명 제출 완료 (${Math.round((submittedCount / (students.length || 1)) * 100)}%)`;
 
-      listCountEl.textContent = `학생 숙제 목록 (${renderedCards.length}명 조회됨)`;
-      renderAdminTestSubmissions();
-      lucide.createIcons();
-    }
-
-    // Render Admin/Teacher tester results separately in the side card
-    function renderAdminTestSubmissions() {
-      const container = document.getElementById("adminTestSubmissionsContainer");
-      if (!container) return;
-
-      const adminSubs = rawSubmissions.filter(sub => sub.studentName === "포인트");
-
-      if (adminSubs.length === 0) {
-        container.innerHTML = `
-          <div class="text-center py-6 text-slate-400 text-[11px] font-bold bg-slate-50/50 border border-dashed border-slate-100 rounded-xl px-2">
-             등록된 선생님 테스트 녹음이 없습니다.<br>학생 학습 화면에서 '포인트' 관리자 계정으로 로그인 후 녹음해 보세요! 🎙️
-          </div>
-        `;
-        return;
-      }
-
-      container.innerHTML = adminSubs.map(sub => {
-        const unitName = LOCAL_UNITS_METADATA[sub.unitId]?.name || `Unit ${sub.unitId}`;
-        const audioMeta = `포인트 선생님 • #${sub.dialogueNum} 대화 오디오`;
-        const timeDiff = sub.submittedAt ? formatTimeDelta(new Date(sub.submittedAt.seconds * 1000)) : "-";
-        
-        return `
-          <div class="bg-indigo-50/20 border border-indigo-100/70 p-3 rounded-2xl space-y-2 text-xs flex flex-col justify-between">
-            <div class="flex justify-between items-start gap-1">
-              <div>
-                <span class="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-md uppercase tracking-wider">${unitName}</span>
-                <h4 class="font-extrabold text-slate-800 text-[11px] mt-1.5">대화 카드 #${sub.dialogueNum}</h4>
-              </div>
-              <span class="text-[9px] text-slate-450 font-bold whitespace-nowrap">${timeDiff}</span>
-            </div>
-            
-            <div class="flex items-center gap-1.5 justify-end pt-1 bg-white/20 border-t border-slate-50 mt-1">
-              <button onclick="playGlobalAudio('${sub.fileUrl}', '${audioMeta}', '${unitName}')" class="bg-[#4D96FF] hover:bg-blue-600 text-white font-bold text-[9px] px-2.5 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-0.5 shadow-xs">
-                <i data-lucide="play" class="w-2.5 h-2.5 fill-white"></i>
-                듣기
-              </button>
-              <button onclick="confirmDeleteSubmission('${sub.id}', '${sub.fileUrl}', '${sub.fileName || ''}', '포인트', '${unitName}')" class="bg-rose-50 hover:bg-rose-100 text-rose-505 border border-rose-100 rounded-lg w-7 h-7 flex items-center justify-center cursor-pointer transition-colors" title="기록 삭제">
-                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    // Detailed Table Record rows renderer
-    function renderDetailedRow(studentName, unitName, submission, hardRecord, dialogueNum) {
-      if (!submission) {
-        return `
-          <tr class="hover:bg-slate-50/30 opacity-60">
-            <td class="px-4 py-3.5 font-extrabold text-[#4D96FF]">#${dialogueNum}</td>
-            <td class="px-4 py-3.5 text-slate-400">기록 없음</td>
-            <td class="px-4 py-3.5 text-slate-350">-</td>
-            <td class="px-4 py-3.5 text-slate-350">-</td>
-            <td class="px-4 py-3.5 text-right text-slate-350">미제출</td>
-          </tr>
-        `;
-      }
-
-      const passLog = hardRecord ? (hardRecord.passLog || []) : [];
-      const totalSentences = passLog.length;
-      const perfectCompletes = passLog.filter(p => p.tries < 5).length;
-      const passRatePct = totalSentences > 0 ? Math.round((perfectCompletes / totalSentences) * 100) : null;
-
-      let passRateHtml = "기록 없음";
-      if (passRatePct !== null) {
-        const rateColor = passRatePct >= 80 ? "text-[#6BCB77]" : passRatePct >= 50 ? "text-amber-500" : "text-rose-500";
-        passRateHtml = `<span class="font-black ${rateColor}">${passRatePct}%</span> <span class="text-[9px] font-semibold text-slate-400 ml-0.5">(${perfectCompletes}/${totalSentences})</span>`;
-      }
-
-      // Sentence progress dots
-      const timelineCircles = passLog.map(step => {
-        let titleHint = `${step.step}번째 문장: `;
-        let circleClass = "bg-slate-300";
-        let character = step.tries;
-
-        if (step.tries === 1) {
-          circleClass = "bg-[#6BCB77]";
-          character = "✓";
-          titleHint += "1번 만에 즉시 완벽 발음 통과! 🎉";
-        } else if (step.tries >= 5) {
-          circleClass = "bg-rose-500";
-          character = "✕";
-          titleHint += "5회 연습 오완료 후 보류 (내일 통과 가능) 📝";
-        } else {
-          circleClass = "bg-amber-400";
-          titleHint += `${step.tries}번 만에 발음 통과`;
-        }
-
-        return `
-          <span class="inline-flex items-center justify-center w-5 h-5 rounded-full ${circleClass} text-white font-black text-[9px] select-none" title="${titleHint}">
-            ${character}
-          </span>
-        `;
-      }).join(' ');
-
-      // Submitted At Date strings
-      const submittedSeconds = submission.submittedAt ? submission.submittedAt.seconds : 0;
-      const dateText = submittedSeconds > 0 
-        ? formatTimeDelta(new Date(submittedSeconds * 1000))
-        : "-";
-
-      const audioMeta = `${studentName} • #${dialogueNum} 대화 오디오`;
-      const feedbackCommentText = submission.feedbackComment || "";
-      const feedbackChecked = submission.feedbackChecked || false;
-
-      return `
-        <tr class="hover:bg-slate-50/50">
-          <td class="px-4 py-4.5 font-extrabold text-slate-800">#${dialogueNum}</td>
-          <td class="px-4 py-4.5">${passRateHtml}</td>
-          <td class="px-4 py-4.5">
-            <div class="flex gap-1 items-center">
-              ${timelineCircles || `<span class="text-slate-320 font-semibold">-</span>`}
-            </div>
-          </td>
-          <td class="px-4 py-4.5 text-slate-400 font-bold text-[11px]">${dateText}</td>
-          
-          <td class="px-4 py-4.5 text-right space-y-2">
-            <div class="flex items-center justify-end gap-1.5">
-              <button onclick="playGlobalAudio('${submission.fileUrl}', '${audioMeta}', '${unitName}')" class="bg-[#4D96FF] hover:bg-blue-600 text-white font-black text-[10px] px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1 active:scale-95 shadow-xs whitespace-nowrap">
-                <i data-lucide="play" class="w-2.5 h-2.5 fill-white"></i>
-                🔊 듣기
-              </button>
-              <a href="${submission.fileUrl}" download target="_blank" class="bg-slate-50 hover:bg-slate-100 border border-slate-150 text-slate-500 font-extrabold text-[10px] px-2.5 py-1.5 rounded-xl transition-all flex items-center justify-center cursor-pointer whitespace-nowrap active:scale-95">
-                다운로드
-              </a>
-              <button onclick="confirmDeleteSubmission('${submission.id}', '${submission.fileUrl}', '${submission.fileName || ''}', '${studentName}', '${unitName}')" class="bg-rose-50 hover:bg-rose-100 text-rose-500 border border-rose-100 rounded-xl w-7.5 h-7.5 flex items-center justify-center cursor-pointer transition-colors active:scale-95" title="제출 오디오 및 기록 삭제">
-                <i data-lucide="x" class="w-3.5 h-3.5"></i>
-              </button>
-            </div>
-
-            <!-- Feedback persistence editor -->
-            <div class="border-t border-slate-50 pt-3 text-left max-w-sm ml-auto space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-[9px] uppercase font-black tracking-widest text-slate-400">선생님 코멘트 피드백</span>
-                <label class="flex items-center gap-1 cursor-pointer select-none">
-                  <input id="chkFeedback-${submission.id}" type="checkbox" ${feedbackChecked ? 'checked' : ''} class="w-3.5 h-3.5 rounded border-slate-200 text-[#4D96FF] focus:ring-[#4D96FF] font-semibold cursor-pointer" />
-                  <span class="text-[9px] font-black text-slate-500">검사 완료</span>
-                </label>
-              </div>
-              <div class="flex gap-1.5">
-                <textarea id="txtFeedback-${submission.id}" placeholder="여기에 피드백 코멘트를 입력하세요 (예: 멋지게 발음해냈어요!)"
-                  class="flex-1 border border-slate-100 rounded-xl py-2 px-2.5 text-[11px] font-bold text-slate-700 placeholder-slate-350 focus:outline-none focus:border-[#4D96FF] transition-colors resize-none bg-slate-50/30 h-10 custom-scroll">${feedbackCommentText}</textarea>
-                <button onclick="saveFeedbackFirestore('${submission.id}')" class="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100/50 text-indigo-600 rounded-xl px-2.5 text-[11px] font-black cursor-pointer active:scale-95 transition-all flex flex-col items-center justify-center gap-0.5 select-none whitespace-nowrap">
-                  <i data-lucide="check" class="w-3.5 h-3.5"></i>
-                  <span>저장</span>
-                </button>
-              </div>
-            </div>
-          </td>
-        </tr>
+      container.innerHTML = cardsHtml.length > 0 ? cardsHtml.join('') : `
+        <div class="bg-white border border-slate-200 rounded-3xl p-10 text-center text-slate-400">
+          <p class="text-xs font-bold">해당 조건에 일치하는 학생이 없습니다.</p>
+        </div>
       `;
     }
 
-    // Format timestamps beautifully
-    function formatTimeDelta(date) {
-      const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMins / 60);
+    // ----------------------------------------------------
+    // 2. MONTHLY TEST RECORDINGS TAB (1~20)
+    // ----------------------------------------------------
+    function renderMonthlyTestTab(students, container, listTitle, totalCountEl) {
+      listTitle.innerHTML = `<span>📊 [${selectedAdminMonth}] Monthly Test 1번~20번 문항 녹음 현황</span>`;
 
-      if (diffMins < 1) return "방금 전";
-      if (diffMins < 60) return `${diffMins}분 전`;
-      if (diffHours < 24) return `${diffHours}시간 전`;
-      
-      return `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    }
+      let fullCompletedCount = 0;
+      let unsubmittedCount = 0;
+      const cardsHtml = [];
 
-    // Storage and Real-time document updates feedback saver
-    async function saveFeedbackFirestore(subId) {
-      if (!window._firebaseReady) return;
-      const commentEl = document.getElementById(`txtFeedback-${subId}`);
-      const checkedEl = document.getElementById(`chkFeedback-${subId}`);
-      if (!commentEl || !checkedEl) return;
-
-      const commentText = commentEl.value.trim();
-      const isChecked = checkedEl.checked;
-
-      try {
-        const subDocRef = window._doc(window._db, 'submissions', subId);
-        await window._updateDoc(subDocRef, {
-          feedbackComment: commentText,
-          feedbackChecked: isChecked
+      students.forEach(student => {
+        // Find monthly test submissions for this student in selected month
+        const matches = rawSubmissions.filter(sub => {
+          if (sub.studentName !== student.name) return false;
+          if (sub.type !== 'monthly_test' && !sub.questionNum) return false;
+          // Match month
+          return sub.month === selectedAdminMonth || sub.testMonth === selectedAdminMonth || (sub.unitName && sub.unitName.includes(selectedAdminMonth));
         });
 
-        // Update local memory data correctly to prevent full page flicker re-fetches
-        const subIndex = rawSubmissions.findIndex(s => s.id === subId);
-        if (subIndex !== -1) {
-          rawSubmissions[subIndex].feedbackComment = commentText;
-          rawSubmissions[subIndex].feedbackChecked = isChecked;
+        const answeredCount = matches.length;
+        const isFullDone = answeredCount === 20;
+        const isNotStarted = answeredCount === 0;
+
+        if (isFullDone) fullCompletedCount++;
+        if (isNotStarted) unsubmittedCount++;
+
+        if (filterUnsubmittedOnly && isFullDone) return;
+
+        const cardId = `mtest_${student.name}_${selectedAdminMonth}`;
+        const isExpanded = expandedCards.has(cardId);
+
+        let badgeHtml = "";
+        let borderClass = "";
+
+        if (isNotStarted) {
+          badgeHtml = `
+            <span class="bg-rose-50 text-rose-600 border border-rose-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 shadow-xs">
+              <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+              🚨 빨간 ❌ 미응시 (0/20)
+            </span>
+          `;
+          borderClass = "bg-rose-50/20 border-2 border-rose-200 hover:border-rose-300";
+        } else if (isFullDone) {
+          badgeHtml = `
+            <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 shadow-xs">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              🎓 20/20 전체 완료
+            </span>
+          `;
+          borderClass = "bg-white border border-slate-200 hover:border-indigo-300";
+        } else {
+          badgeHtml = `
+            <span class="bg-amber-50 text-amber-700 border border-amber-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 shadow-xs">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+              ⚠️ ${answeredCount}/20 진행 중
+            </span>
+          `;
+          borderClass = "bg-white border-2 border-amber-200 hover:border-amber-300";
         }
 
-        showToast("💾 피드백이 성공적으로 반영되었습니다!");
-        applyFilters();
-
-      } catch (e) {
-        console.error("Feedback Save Failure:", e);
-        showToast("⚠️ 저장을 실패했습니다. 네트워크를 확인해주세요.");
-      }
-    }
-
-    // Audio Playing state mechanics
-    let audioIsPlaying = false;
-    let currentPlayingUrl = "";
-
-    function playGlobalAudio(url, metaLabel, unitLabel) {
-      const panel = document.getElementById("adminAudioPanel");
-      const html5Audio = document.getElementById("globalHtml5Audio");
-      const nameEl = document.getElementById("audioPlayerName");
-      const metaEl = document.getElementById("audioPlayerMeta");
-      const playIcon = document.getElementById("audioPlayIcon");
-
-      if (currentPlayingUrl === url) {
-        // Toggle play/pause
-        togglePlayAudio();
-        return;
-      }
-
-      currentPlayingUrl = url;
-      html5Audio.src = url;
-
-      nameEl.textContent = metaLabel;
-      metaEl.textContent = unitLabel;
-
-      panel.classList.remove("hidden");
-      setTimeout(() => {
-        panel.classList.add("translate-y-0", "opacity-100");
-        panel.classList.remove("translate-y-20", "opacity-0");
-      }, 20);
-
-      html5Audio.play();
-      audioIsPlaying = true;
-      updatePlayIcon();
-    }
-
-    function togglePlayAudio() {
-      const html5Audio = document.getElementById("globalHtml5Audio");
-      if (!html5Audio.src) return;
-
-      if (audioIsPlaying) {
-        html5Audio.pause();
-        audioIsPlaying = false;
-      } else {
-        html5Audio.play();
-        audioIsPlaying = true;
-      }
-      updatePlayIcon();
-    }
-
-    function updatePlayIcon() {
-      const playIcon = document.getElementById("audioPlayIcon");
-      if (audioIsPlaying) {
-        playIcon.setAttribute("data-lucide", "pause");
-      } else {
-        playIcon.setAttribute("data-lucide", "play");
-      }
-      lucide.createIcons();
-    }
-
-    function closeGlobalAudio() {
-      const panel = document.getElementById("adminAudioPanel");
-      const html5Audio = document.getElementById("globalHtml5Audio");
-      
-      html5Audio.pause();
-      html5Audio.src = "";
-      audioIsPlaying = false;
-      updatePlayIcon();
-
-      panel.classList.add("translate-y-20", "opacity-0");
-      panel.classList.remove("translate-y-0", "opacity-100");
-      setTimeout(() => {
-        panel.classList.add("hidden");
-      }, 350);
-    }
-
-    function seekAudio(value) {
-      const html5Audio = document.getElementById("globalHtml5Audio");
-      if (!html5Audio.duration) return;
-      html5Audio.currentTime = (value / 100) * html5Audio.duration;
-    }
-
-    function updateAudioProgress() {
-      const html5Audio = document.getElementById("globalHtml5Audio");
-      const slider = document.getElementById("audioProgSlider");
-      const currentEl = document.getElementById("audioTimeCurrent");
-      const totalEl = document.getElementById("audioTimeTotal");
-
-      if (!html5Audio.duration) return;
-
-      const pct = (html5Audio.currentTime / html5Audio.duration) * 100;
-      slider.value = pct;
-
-      currentEl.textContent = formatAudioSeconds(html5Audio.currentTime);
-      totalEl.textContent = formatAudioSeconds(html5Audio.duration);
-    }
-
-    function formatAudioSeconds(sec) {
-      const min = Math.floor(sec / 60);
-      const rem = Math.floor(sec % 60);
-      return `${String(min).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
-    }
-
-    function onAudioEnded() {
-      audioIsPlaying = false;
-      updatePlayIcon();
-      document.getElementById("audioProgSlider").value = 0;
-      document.getElementById("audioTimeCurrent").textContent = "00:00";
-    }
-
-    // Delete single audio recording submission cleanly
-    async function confirmDeleteSubmission(subId, fileUrl, fileName, studentName, unitName) {
-      if (!confirm(`🗑 이 기록을 정말로 삭제할까요?\n\n학생: ${studentName}\n스크립트: ${unitName}\n\n삭제 시 오기록 및 녹음 백업 데이터가 완전히 사라지며 되돌릴 수 없습니다.`)) return;
-      
-      try {
-        // 1. Delete Firestore record
-        await window._deleteDoc(window._doc(window._db, 'submissions', subId));
-
-        // 2. Delete cloud storage audio file
-        if (fileName && studentName && unitName) {
-          try {
-            const cleanUnitName = unitName.replace(/\//g, '-');
-            const targetPath = `recordings/${studentName}/${cleanUnitName}/${fileName}`;
-            await window._deleteObject(window._ref(window._storage, targetPath));
-          } catch (storageErr) {
-            console.warn("Storage delete failed (or wasn't present):", storageErr);
+        // Generate 1 to 20 grid summary chips
+        let chipsHtml = "";
+        for (let q = 1; q <= 20; q++) {
+          const sub = matches.find(m => m.questionNum === q);
+          if (sub) {
+            chipsHtml += `
+              <span class="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 font-black text-[10px] flex items-center justify-center shadow-xs" title="문제 ${q}번: 제출 완료">
+                ${q}
+              </span>
+            `;
+          } else {
+            chipsHtml += `
+              <span class="w-6 h-6 rounded-lg bg-rose-100 text-rose-600 font-black text-[10px] flex items-center justify-center" title="문제 ${q}번: ❌ 미제출">
+                ❌
+              </span>
+            `;
           }
         }
 
-        showToast("✅ 성공적으로 제출을 삭제했습니다!");
-        loadRemoteData();
-      } catch (e) {
-        console.error("Submission deletion failed:", e);
-        showToast("❌ 제출 삭제 중 지연 오류가 일어났습니다.");
-      }
-    }
-
-    // Student Entire logs and marks clearing function
-    async function triggerClearStudentLogs(name) {
-      if (!confirm(`⚠️ "${name}" 학생의 모든 학습 지표 및 제출 발음 일기록을 초기화할까요?\n\n- 이 분반 학생의 전체 녹음 목록 제출건과 학습 결과가 모두 삭제됩니다.\n- 복구가 불가능하니 각별히 조심해주세요!`)) return;
-      if (!confirm(`최종 검증: 정말로 "${name}" 학생의 원소들을 소거하겠습니까?`)) return;
-
-      try {
-        // Collect submissions of selected user
-        const toDeleteSubs = rawSubmissions.filter(s => s.studentName === name);
-        for (const s of toDeleteSubs) {
-          await window._deleteDoc(window._doc(window._db, 'submissions', s.id));
-          if (s.fileName && s.unitName) {
-            try {
-              const cleanUnit = s.unitName.replace(/\//g, '-');
-              const path = `recordings/${name}/${cleanUnit}/${s.fileName}`;
-              await window._deleteObject(window._ref(window._storage, path));
-            } catch (e1) { console.warn(e1); }
+        // Detailed question audios when expanded
+        let detailsHtml = "";
+        if (isExpanded) {
+          let questionsGrid = "";
+          for (let q = 1; q <= 20; q++) {
+            const sub = matches.find(m => m.questionNum === q);
+            questionsGrid += `
+              <div class="bg-slate-50 border ${sub ? 'border-indigo-100' : 'border-slate-200'} p-3 rounded-2xl space-y-1.5 text-xs text-left">
+                <div class="flex items-center justify-between">
+                  <span class="font-black ${sub ? 'text-indigo-600' : 'text-slate-400'} flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full ${sub ? 'bg-emerald-500' : 'bg-rose-400'}"></span>
+                    문제 ${q}번
+                  </span>
+                  <span class="text-[10px] font-black ${sub ? 'text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded' : 'text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded'}">
+                    ${sub ? '✅ 제출 완료' : '❌ 미제출'}
+                  </span>
+                </div>
+                ${sub && sub.fileUrl ? `
+                  <audio controls src="${sub.fileUrl}" class="w-full rounded-lg" style="height: 32px;"></audio>
+                ` : `
+                  <p class="text-[11px] text-slate-300 italic py-1">녹음 파일 없음</p>
+                `}
+              </div>
+            `;
           }
+
+          detailsHtml = `
+            <div class="pt-3 border-t border-slate-100 space-y-3">
+              <h4 class="text-[11px] font-black uppercase tracking-wider text-slate-400 text-left">
+                1번 ~ 20번 문항별 개별 녹음 듣기
+              </h4>
+              <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                ${questionsGrid}
+              </div>
+            </div>
+          `;
         }
 
-        // Collect hardWords logs
-        const toDeleteHards = rawHardWords.filter(h => h.studentName === name);
-        for (const h of toDeleteHards) {
-          await window._deleteDoc(window._doc(window._db, 'hardWords', h.id));
-        }
+        cardsHtml.push(`
+          <div class="${borderClass} rounded-3xl p-4 sm:p-5 transition-all shadow-xs space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer" onclick="toggleCard('${cardId}')">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl ${isFullDone ? 'bg-indigo-100 text-indigo-800' : isNotStarted ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800'} flex items-center justify-center font-black text-sm shrink-0">
+                  ${student.name[0]}
+                </div>
+                <div class="text-left">
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm sm:text-base font-black text-slate-800">${student.name}</span>
+                    <span class="text-[10px] font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md">${student.cls}</span>
+                  </div>
+                  <p class="text-[11px] text-slate-400 font-bold mt-0.5">
+                    Monthly Test 제출율: ${answeredCount} / 20 완료 (${Math.round((answeredCount / 20) * 100)}%)
+                  </p>
+                </div>
+              </div>
 
-        showToast(`✅ ${name} 학생 스마트보드 전체 소거 완료!`);
-        loadRemoteData();
+              <div class="flex items-center justify-between sm:justify-end gap-3">
+                ${badgeHtml}
+                <span class="text-slate-400 text-xs font-bold">${isExpanded ? '▲ 접기' : '▼ 문항별 듣기'}</span>
+              </div>
+            </div>
 
-      } catch (e) {
-        console.error("Student logs clear error:", e);
-        showToast("⚠️ 초기화 진행 도중 오류가 발견되었습니다.");
-      }
-    }
+            <!-- Mini 1~20 Status Bar -->
+            <div class="flex items-center gap-1 flex-wrap pt-2 border-t border-slate-100/60">
+              <span class="text-[10px] font-black text-slate-400 mr-1.5">문항 현황:</span>
+              ${chipsHtml}
+            </div>
 
-    // Reset all database records
-    async function triggerResetAll() {
-      if (!confirm("🚨 경보: 스마트서명 보드의 모든 학생 제출 녹음 기록과 발음 통계를 소거할까요?\n\n- 이 작업은 되돌릴 수 없으며, 모든 submissions 콜렉션이 삭제됩니다!\n- 주의하십시오.")) return;
-      if (!confirm("정말 최종 확인: 모든 Firebase DB 기록을 파괴하시겠습니까?")) return;
+            <!-- Detailed 20 questions audio players -->
+            ${detailsHtml}
+          </div>
+        `);
+      });
 
-      try {
-        // Submissions delete loop
-        const snap1 = await window._getDocs(window._query(window._collection(window._db, 'submissions')));
-        for (const docObj of snap1.docs) {
-          await window._deleteDoc(window._doc(window._db, 'submissions', docObj.id));
-        }
+      // Update counters
+      document.getElementById('txtSubmittedCount').textContent = `${fullCompletedCount}명`;
+      document.getElementById('txtUnsubmittedCount').textContent = `${unsubmittedCount}명`;
+      totalCountEl.textContent = `총 ${students.length}명 중 ${fullCompletedCount}명 완수 (${Math.round((fullCompletedCount / (students.length || 1)) * 100)}%)`;
 
-        // HardWords delete loop
-        const snap2 = await window._getDocs(window._query(window._collection(window._db, 'hardWords')));
-        for (const docObj of snap2.docs) {
-          await window._deleteDoc(window._doc(window._db, 'hardWords', docObj.id));
-        }
-
-        alert("✅ 스마트보드의 모든 실시간 데이터 초기화가 수행되었습니다.");
-        loadRemoteData();
-
-      } catch (err) {
-        console.error(err);
-        alert("⚠️ 데이터 소거 과정 중 일부 자원이 차단되었습니다: " + err.message);
-      }
-    }
-
-    function showToast(msg) {
-      const t = document.getElementById("adminToast");
-      const txt = document.getElementById("adminToastText");
-      if (!t || !txt) return;
-
-      txt.textContent = msg;
-      t.classList.remove("opacity-0", "scale-90", "pointer-events-none");
-      t.classList.add("opacity-100", "scale-100");
-
-      setTimeout(() => {
-        t.classList.remove("opacity-100", "scale-100");
-        t.classList.add("opacity-0", "scale-90", "pointer-events-none");
-      }, 3000);
+      container.innerHTML = cardsHtml.length > 0 ? cardsHtml.join('') : `
+        <div class="bg-white border border-slate-200 rounded-3xl p-10 text-center text-slate-400">
+          <p class="text-xs font-bold">해당 조건에 일치하는 학생이 없습니다.</p>
+        </div>
+      `;
     }
   </script>
 </body>
